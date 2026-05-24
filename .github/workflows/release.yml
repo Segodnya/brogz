@@ -96,24 +96,20 @@ jobs:
         # fail on already-present assets from the previous attempt.
         run: gh release upload "${GITHUB_REF_NAME}" "${ASSET}" --clobber
 
-  publish-release:
-    name: Publish GitHub release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mark release as non-draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false
-
+  # crates.io and Homebrew tap publish must stay in lockstep: if either fails,
+  # neither should ship and the GitHub Release stays in draft so the whole
+  # release can be re-run cleanly. To get this, `notify-tap` waits on
+  # `publish-crate`, and `publish-release` waits on both.
+  #
+  # `PUBLISH_PACKAGES` gates both. Leave it unset for the very first release
+  # (crate name and tap repo don't exist yet — you publish those by hand);
+  # flip it to `true` afterwards so every subsequent tag ships everywhere
+  # automatically.
   publish-crate:
     name: Publish to crates.io
     needs: build
     runs-on: ubuntu-latest
-    # Gate behind a repo variable so first-time releases don't fail before the
-    # crate is reserved on crates.io. Flip `PUBLISH_CRATE=true` in repo
-    # variables and set the `CARGO_REGISTRY_TOKEN` secret to opt in.
-    if: vars.PUBLISH_CRATE == 'true'
+    if: vars.PUBLISH_PACKAGES == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -121,12 +117,11 @@ jobs:
 
   notify-tap:
     name: Bump Homebrew tap
-    needs: publish-release
+    needs: [build, publish-crate]
     runs-on: ubuntu-latest
-    # Requires a PAT in `HOMEBREW_TAP_TOKEN` with `contents: write` on
-    # Segodnya/homebrew-brogz. Skipped silently if the secret is absent so the
-    # release workflow stays green on a first run before the tap exists.
-    if: vars.PUBLISH_TAP == 'true'
+    # Only fires when the crate publish actually succeeded — otherwise the tap
+    # would point at a version that doesn't exist on crates.io.
+    if: vars.PUBLISH_PACKAGES == 'true' && needs.publish-crate.result == 'success'
     steps:
       - name: Trigger formula bump
         env:
@@ -138,3 +133,21 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -f event_type=brogz-released \
             -F "client_payload[version]=${TAG}"
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [build, publish-crate, notify-tap]
+    runs-on: ubuntu-latest
+    # Drop the draft flag only when every channel either succeeded or was
+    # intentionally skipped (first release with `PUBLISH_PACKAGES` unset).
+    # If any channel failed, the release stays in draft for clean re-runs.
+    if: |
+      always() && !cancelled() &&
+      needs.build.result == 'success' &&
+      (needs.publish-crate.result == 'success' || needs.publish-crate.result == 'skipped') &&
+      (needs.notify-tap.result == 'success' || needs.notify-tap.result == 'skipped')
+    steps:
+      - name: Mark release as non-draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false

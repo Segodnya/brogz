@@ -23,7 +23,11 @@ across a site's static assets. One static binary — no Node, no `curl` in your
 ## Install
 
 ```bash
-# from crates.io
+# Homebrew (macOS, Linux)
+brew tap Segodnya/brogz
+brew install brogz
+
+# crates.io (anywhere with a Rust toolchain)
 cargo install brogz
 
 # or grab a prebuilt binary from the latest GitHub Release:
@@ -32,6 +36,9 @@ cargo install brogz
 
 Prebuilt targets: `x86_64`/`aarch64-unknown-linux-gnu`, `x86_64`/`aarch64-apple-darwin`,
 `x86_64-pc-windows-msvc`.
+
+The Homebrew tap lives at [Segodnya/homebrew-brogz](https://github.com/Segodnya/homebrew-brogz)
+and is bumped automatically on every new release.
 
 ## Usage
 
