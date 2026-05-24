@@ -39,8 +39,11 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
             archive: tar.gz
+          # Both Darwin targets build on Apple Silicon — `macos-13` (Intel)
+          # runners are deprecated and frequently sit in queue for hours.
+          # Xcode on ARM cross-compiles to x86_64 natively, output is identical.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
