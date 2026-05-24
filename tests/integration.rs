@@ -42,8 +42,15 @@ async fn full_pipeline_discovers_and_measures_three_encodings() {
     let report = brogz::run(config).await.unwrap();
 
     // Discovery order — index always first, then HTML appearance order.
-    let paths: Vec<&str> = report.measurements.iter().map(|m| m.path.as_str()).collect();
-    assert_eq!(paths, vec!["/index.html", "/assets/app.css", "/assets/app.js"]);
+    let paths: Vec<&str> = report
+        .measurements
+        .iter()
+        .map(|m| m.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["/index.html", "/assets/app.css", "/assets/app.js"]
+    );
 
     let index = &report.measurements[0];
     assert_eq!(index.identity.bytes, INDEX_HTML.len() as u64);

@@ -99,7 +99,11 @@ mod tests {
                     median_ms: 15,
                 },
             }],
-            totals: Totals { identity: 1024, gzip: 512, br: 400 },
+            totals: Totals {
+                identity: 1024,
+                gzip: 512,
+                br: 400,
+            },
         };
 
         let json = serde_json::to_value(&report).unwrap();
@@ -124,7 +128,10 @@ mod tests {
 
     #[test]
     fn encoding_serializes_as_lowercase() {
-        assert_eq!(serde_json::to_string(&Encoding::Identity).unwrap(), "\"identity\"");
+        assert_eq!(
+            serde_json::to_string(&Encoding::Identity).unwrap(),
+            "\"identity\""
+        );
         assert_eq!(serde_json::to_string(&Encoding::Gzip).unwrap(), "\"gzip\"");
         assert_eq!(serde_json::to_string(&Encoding::Br).unwrap(), "\"br\"");
     }

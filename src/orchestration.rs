@@ -60,11 +60,6 @@ pub async fn run(config: Config) -> Result<Report, BrogzError> {
     })
 }
 
-/// Measure all three encodings for one URL in parallel.
-///
-/// The three encodings run concurrently via `try_join!` (paritetic with the
-/// original TS `Promise.all`); inside each, `measure_encoding` does its own
-/// `runs`-wide parallelism per the configured concurrency.
 /// Join `path` under `base` using string concatenation semantics — mirrors the
 /// original TS `${baseUrl}${path}`. `Url::join` cannot do this: a leading
 /// slash in `path` would reset the base's own path segment (so
@@ -80,6 +75,11 @@ pub(crate) fn join_under_base(base: &Url, path: &str) -> Result<Url, BrogzError>
     Ok(Url::parse(&format!("{base_str}{normalized}"))?)
 }
 
+/// Measure all three encodings for one URL in parallel.
+///
+/// The three encodings run concurrently via `try_join!` (paritetic with the
+/// original TS `Promise.all`); inside each, `measure_encoding` does its own
+/// `runs`-wide parallelism per the configured concurrency.
 pub async fn measure_url(
     base: &Url,
     path: &str,
@@ -95,7 +95,12 @@ pub async fn measure_url(
         measure_encoding(client, &url, Encoding::Br, runs, concurrency),
     )?;
 
-    Ok(UrlMeasurement { path: path.to_owned(), identity, gzip, br })
+    Ok(UrlMeasurement {
+        path: path.to_owned(),
+        identity,
+        gzip,
+        br,
+    })
 }
 
 fn now_iso_utc() -> String {
@@ -194,8 +199,17 @@ mod tests {
 
     #[test]
     fn trim_trailing_slash_preserves_path() {
-        assert_eq!(trim_trailing_slash("https://app.example/"), "https://app.example");
-        assert_eq!(trim_trailing_slash("https://app.example"), "https://app.example");
-        assert_eq!(trim_trailing_slash("https://app.example/foo/"), "https://app.example/foo");
+        assert_eq!(
+            trim_trailing_slash("https://app.example/"),
+            "https://app.example"
+        );
+        assert_eq!(
+            trim_trailing_slash("https://app.example"),
+            "https://app.example"
+        );
+        assert_eq!(
+            trim_trailing_slash("https://app.example/foo/"),
+            "https://app.example/foo"
+        );
     }
 }

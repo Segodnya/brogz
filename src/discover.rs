@@ -69,7 +69,9 @@ pub async fn discover_urls(base: &Url, client: &Client) -> Result<Vec<String>, B
         .await?;
 
     if !response.status().is_success() {
-        return Err(BrogzError::MissingHtml { url: index_url.to_string() });
+        return Err(BrogzError::MissingHtml {
+            url: index_url.to_string(),
+        });
     }
 
     let html = response.text().await?;

@@ -23,8 +23,8 @@ pub fn median(values: &[u64]) -> u64 {
     sorted.sort_unstable();
 
     let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
-        (sorted[mid - 1] + sorted[mid] + 1) / 2
+    if sorted.len().is_multiple_of(2) {
+        (sorted[mid - 1] + sorted[mid]).div_ceil(2)
     } else {
         sorted[mid]
     }
@@ -110,7 +110,10 @@ pub async fn measure_encoding(
 fn join_sorted<T: ToString + Ord>(set: HashSet<T>) -> String {
     let mut v: Vec<T> = set.into_iter().collect();
     v.sort();
-    v.iter().map(ToString::to_string).collect::<Vec<_>>().join(",")
+    v.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]

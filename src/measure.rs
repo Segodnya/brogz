@@ -70,7 +70,12 @@ pub async fn probe(
 
     let elapsed = start.elapsed();
 
-    Ok(ProbeResult { bytes, elapsed, content_encoding, status })
+    Ok(ProbeResult {
+        bytes,
+        elapsed,
+        content_encoding,
+        status,
+    })
 }
 
 #[cfg(test)]
