@@ -110,10 +110,34 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: vars.PUBLISH_PACKAGES == 'true'
+    env:
+      # Modern replacement for the deprecated `cargo publish --token` flag.
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Skip cleanly when the version is already on crates.io. Lets us re-run
+      # this workflow after fixing a downstream failure (Homebrew tap, etc.)
+      # without `cargo publish` failing with "crate version already exists".
+      - name: Check whether this version is already published
+        id: check
+        run: |
+          set -euo pipefail
+          version=$(grep -E '^version\s*=' Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://crates.io/api/v1/crates/brogz/${version}" || true)
+          if [[ "${status}" == "200" ]]; then
+            echo "brogz ${version} is already on crates.io — skipping publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.check.outputs.skip != 'true'
+        run: cargo publish
 
   notify-tap:
     name: Bump Homebrew tap
