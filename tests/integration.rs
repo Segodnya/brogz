@@ -37,6 +37,7 @@ async fn full_pipeline_discovers_and_measures_three_encodings() {
         concurrency: 6,
         insecure: false,
         paths: None,
+        progress: None,
     };
 
     let report = brogz::run(config).await.unwrap();
@@ -129,6 +130,7 @@ async fn missing_index_html_returns_actionable_error() {
         concurrency: 1,
         insecure: false,
         paths: None,
+        progress: None,
     };
 
     let err = brogz::run(config).await.unwrap_err();

@@ -55,6 +55,7 @@ Options:
   -o, --out <FILE>            Write JSON report to file (in addition to stdout table)
   -p, --path <PATH>           Skip discovery; measure these paths instead (repeatable)
       --no-color              Disable colored output
+  -q, --quiet                 Suppress progress lines on stderr
   -h, --help, -V, --version
 ```
 
@@ -85,12 +86,17 @@ total wall-clock time, and reports:
 
 | field             | meaning                                                          |
 |-------------------|------------------------------------------------------------------|
-| `bytes`           | first probe's body length on the wire (not decompressed)         |
+| `bytes`           | median wire body length across probes (not decompressed)         |
+| `bytesMin`        | smallest wire length seen across probes                          |
+| `bytesMax`        | largest wire length seen across probes                           |
 | `contentEncoding` | `Content-Encoding` header from the final response                |
 | `medianMs`        | median of per-probe wall-clock time (`Math.round`-compatible)    |
 
-Size and `Content-Encoding` mismatches across probes log a `warn!` to stderr.
-Status mismatches or non-200 responses abort the URL with a clear error.
+On a static asset all probes agree, so `bytes == bytesMin == bytesMax`. Public
+HTML (CSRF tokens, request IDs, A/B variants) produces slightly different
+bodies per request — the median is representative, and `bytesMin`/`bytesMax`
+expose the spread. `Content-Encoding` mismatches across probes log a `warn!`
+to stderr; status mismatches or non-200 responses abort the URL.
 
 ### Output
 
@@ -105,9 +111,9 @@ per-probe medians and totals — is written to JSON when `--out` is set:
   "measurements": [
     {
       "path": "/index.html",
-      "identity": { "bytes": 39516, "contentEncoding": "identity", "medianMs": 28 },
-      "gzip":     { "bytes": 10128, "contentEncoding": "gzip",     "medianMs": 30 },
-      "br":       { "bytes":  8037, "contentEncoding": "br",       "medianMs": 32 }
+      "identity": { "bytes": 39516, "bytesMin": 39516, "bytesMax": 39516, "contentEncoding": "identity", "medianMs": 28 },
+      "gzip":     { "bytes": 10128, "bytesMin": 10112, "bytesMax": 10145, "contentEncoding": "gzip",     "medianMs": 30 },
+      "br":       { "bytes":  8037, "bytesMin":  8001, "bytesMax":  8062, "contentEncoding": "br",       "medianMs": 32 }
     }
   ],
   "totals": { "identity": 314313, "gzip": 98581, "br": 84953 }
@@ -141,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         concurrency: 30,
         insecure: false,
         paths: None, // None -> discover from /index.html
+        progress: None, // or Some(Arc::new(|e| { ... })) to receive ProgressEvent
     }).await?;
 
     println!("br savings vs gzip: {} -> {} bytes",

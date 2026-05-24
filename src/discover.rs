@@ -19,11 +19,14 @@ static ASSET_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Extract asset paths from a rendered `index.html`.
 ///
-/// Behaviour mirrors the original TypeScript script: `/index.html` is always
-/// the first entry, external (http/https-prefixed) hrefs are skipped, and
-/// duplicates are dropped while preserving first-seen order so the printed
+/// `/index.html` is always the first entry. Every `href` is resolved against
+/// `base` so root-relative (`/foo.js`), protocol-relative (`//cdn/foo.js`),
+/// path-relative (`foo.js`), and fully-qualified URLs go through one common
+/// origin check — references on a different origin are dropped (a different
+/// origin means a separate host that the user did not ask us to measure).
+/// Duplicates are dropped while preserving first-seen order so the printed
 /// table matches the legacy run.
-pub fn parse_assets(html: &str) -> Vec<String> {
+pub fn parse_assets(html: &str, base: &Url) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
 
@@ -31,23 +34,29 @@ pub fn parse_assets(html: &str) -> Vec<String> {
     seen.insert(index.clone());
     out.push(index);
 
+    let base_origin = base.origin();
+
     for caps in ASSET_REGEX.captures_iter(html) {
         let href = &caps[1];
 
-        // TS used `startsWith('http')` — this also covers https, so we keep the
-        // same loose check rather than parsing the URL.
-        if href.starts_with("http") {
+        // `Url::join` follows WHATWG resolution semantics, so all four
+        // common forms — root-relative, protocol-relative, fully-qualified,
+        // path-relative — funnel through one cross-origin check below.
+        let Ok(resolved) = base.join(href) else { continue };
+
+        if resolved.origin() != base_origin {
             continue;
         }
 
-        let normalized = if href.starts_with('/') {
-            href.to_owned()
-        } else {
-            format!("/{href}")
+        // Path + query is what identifies an asset on the wire; fragment is
+        // never sent in an HTTP request, drop it.
+        let path = match resolved.query() {
+            Some(q) => format!("{}?{}", resolved.path(), q),
+            None => resolved.path().to_owned(),
         };
 
-        if seen.insert(normalized.clone()) {
-            out.push(normalized);
+        if seen.insert(path.clone()) {
+            out.push(path);
         }
     }
 
@@ -76,12 +85,16 @@ pub async fn discover_urls(base: &Url, client: &Client) -> Result<Vec<String>, B
 
     let html = response.text().await?;
 
-    Ok(parse_assets(&html))
+    Ok(parse_assets(&html, base))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn base() -> Url {
+        Url::parse("https://example.test").unwrap()
+    }
 
     #[test]
     fn extracts_assets_dedupes_and_keeps_order() {
@@ -99,7 +112,7 @@ mod tests {
 </head>
 </html>"#;
 
-        let paths = parse_assets(html);
+        let paths = parse_assets(html, &base());
 
         assert_eq!(
             paths,
@@ -115,16 +128,61 @@ mod tests {
 
     #[test]
     fn empty_html_still_includes_index() {
-        assert_eq!(parse_assets("<html></html>"), vec!["/index.html"]);
+        assert_eq!(parse_assets("<html></html>", &base()), vec!["/index.html"]);
     }
 
     #[test]
     fn match_is_case_insensitive() {
         let html = r#"<SCRIPT SRC="/app.JS"></SCRIPT><LINK HREF="/style.CSS">"#;
 
-        let paths = parse_assets(html);
+        let paths = parse_assets(html, &base());
 
         assert_eq!(paths, vec!["/index.html", "/app.JS", "/style.CSS"]);
+    }
+
+    #[test]
+    fn skips_protocol_relative_cross_host_assets() {
+        // Real-world failure mode: some.site serves all its assets from
+        // `//cdn.some.site/...`. Without this filter we would resolve them
+        // against `https://some.site` and request `https://some.site//cdn...`,
+        // which 404s and aborts the run.
+        let html = r#"<link href="//cdn.some.site/frontend/dist/Main.css">
+                      <script src="//cdn.example.com/sdk.js"></script>
+                      <script src="/assets/local.js"></script>"#;
+
+        assert_eq!(
+            parse_assets(html, &Url::parse("https://some.site").unwrap()),
+            vec!["/index.html", "/assets/local.js"]
+        );
+    }
+
+    #[test]
+    fn fully_qualified_same_origin_is_kept_as_path() {
+        // A self-href written out in full (`https://app.example/foo.js`) should
+        // come back as a root-relative path, not be dropped as "external".
+        // The old prefix-based filter missed this — only the resolve+origin
+        // approach handles it cleanly.
+        let html = r#"<script src="https://app.example/assets/main.js"></script>
+                      <link href="https://app.example/style.css">
+                      <script src="https://app.example:8443/portbump.js"></script>"#;
+
+        assert_eq!(
+            parse_assets(html, &Url::parse("https://app.example").unwrap()),
+            vec!["/index.html", "/assets/main.js", "/style.css"]
+        );
+    }
+
+    #[test]
+    fn cross_scheme_is_treated_as_cross_origin() {
+        // Per WHATWG, `http://host` and `https://host` are different origins.
+        // We refuse to silently downgrade — keeps the report honest about
+        // what was actually fetched.
+        let html = r#"<script src="http://app.example/insecure.js"></script>"#;
+
+        assert_eq!(
+            parse_assets(html, &Url::parse("https://app.example").unwrap()),
+            vec!["/index.html"]
+        );
     }
 
     #[test]
@@ -133,6 +191,6 @@ mod tests {
                       <script src="/app.wasm"></script>
                       <script src="/app.js"></script>"#;
 
-        assert_eq!(parse_assets(html), vec!["/index.html", "/app.js"]);
+        assert_eq!(parse_assets(html, &base()), vec!["/index.html", "/app.js"]);
     }
 }

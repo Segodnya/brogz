@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::discover::discover_urls;
 use crate::error::BrogzError;
 use crate::measure::build_client;
+use crate::progress::ProgressEvent;
 use crate::report::{Encoding, Report, Totals, UrlMeasurement};
 
 /// Run the full compression check end-to-end.
@@ -31,10 +32,19 @@ pub async fn run(config: Config) -> Result<Report, BrogzError> {
         None => discover_urls(&config.base_url, &client).await?,
     };
 
+    if let Some(cb) = &config.progress {
+        cb(ProgressEvent::Discovered {
+            url_count: paths.len(),
+            // Three encodings (identity/gzip/br) × `runs` probes per encoding.
+            probes_per_url: 3 * config.runs,
+        });
+    }
+
     let concurrency = config.concurrency.max(1);
     let runs = config.runs;
     let base_url = config.base_url.clone();
     let client_for_stream = client.clone();
+    let progress = config.progress.clone();
 
     // One semaphore for the whole run — caps in-flight HTTP connections across
     // every URL × encoding × probe. Without this cap, default settings (11
@@ -47,7 +57,16 @@ pub async fn run(config: Config) -> Result<Report, BrogzError> {
             let base = base_url.clone();
             let client = client_for_stream.clone();
             let permits = permits.clone();
-            async move { measure_url(&base, &path, runs, &client, permits).await }
+            let progress = progress.clone();
+            async move {
+                let result = measure_url(&base, &path, runs, &client, permits).await;
+                if result.is_ok()
+                    && let Some(cb) = &progress
+                {
+                    cb(ProgressEvent::UrlCompleted { path: path.clone() });
+                }
+                result
+            }
         })
         .buffered(concurrency)
         .collect::<Vec<_>>()
@@ -158,6 +177,7 @@ mod tests {
             concurrency: 4,
             insecure: false,
             paths: Some(vec!["/index.html".to_owned(), "/app.js".to_owned()]),
+            progress: None,
         };
 
         let report = run(config).await.unwrap();

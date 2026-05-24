@@ -1,6 +1,6 @@
 [package]
 name = "brogz"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 authors = ["Kira Kurentsov <immortalsteel@gmail.com>"]
 description = "Measure wire bytes and timing for identity / gzip / brotli responses across a site's assets."

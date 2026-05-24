@@ -38,10 +38,14 @@ pub fn median(values: &[u64]) -> u64 {
 /// * **Status consistency is an error.** If any probe returns non-200 or the
 ///   probes disagree on status, we abort the URL — measuring "bytes" across a
 ///   200 and a 404 would be meaningless.
-/// * **Size and Content-Encoding mismatches are warnings.** A flaky CDN that
-///   occasionally negotiates a different encoding still produces a usable
-///   median; we surface the noise via `tracing::warn!` and pick the first
-///   sample's values for the report.
+/// * **Byte-size variance is expected.** Dynamic HTML (CSRF tokens, request
+///   IDs, A/B variants) produces slightly different bodies per request, which
+///   brotli/gzip amplify. We report the median as the representative value
+///   and surface the spread via `bytes_min`/`bytes_max`.
+/// * **Content-Encoding mismatch is a warning.** A flaky CDN that occasionally
+///   negotiates a different encoding still produces a usable median; we
+///   surface the noise via `tracing::warn!` and pick the first sample's
+///   Content-Encoding for the report.
 pub async fn measure_encoding(
     client: &Client,
     url: &Url,
@@ -87,16 +91,6 @@ pub async fn measure_encoding(
         });
     }
 
-    let sizes: HashSet<u64> = results.iter().map(|r| r.bytes).collect();
-    if sizes.len() > 1 {
-        tracing::warn!(
-            url = %url,
-            encoding = %encoding,
-            sizes = %join_sorted(sizes),
-            "non-deterministic byte count across probes"
-        );
-    }
-
     let content_encodings: HashSet<String> =
         results.iter().map(|r| r.content_encoding.clone()).collect();
     if content_encodings.len() > 1 {
@@ -110,13 +104,19 @@ pub async fn measure_encoding(
         );
     }
 
+    let sizes: Vec<u64> = results.iter().map(|r| r.bytes).collect();
+    let bytes_min = sizes.iter().copied().min().unwrap_or(0);
+    let bytes_max = sizes.iter().copied().max().unwrap_or(0);
+
     let times_ms: Vec<u64> = results
         .iter()
         .map(|r| (r.elapsed.as_secs_f64() * 1000.0).round() as u64)
         .collect();
 
     Ok(EncodingMeasurement {
-        bytes: results[0].bytes,
+        bytes: median(&sizes),
+        bytes_min,
+        bytes_max,
         content_encoding: results[0].content_encoding.clone(),
         median_ms: median(&times_ms),
     })

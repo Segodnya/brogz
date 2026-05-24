@@ -32,7 +32,13 @@ impl std::fmt::Display for Encoding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EncodingMeasurement {
+    /// Median wire byte count across probes. On a static asset all probes
+    /// agree and this equals `bytes_min` / `bytes_max`. On dynamic HTML
+    /// (CSRF tokens, request IDs, A/B variants), probes diverge — the median
+    /// is the representative value; `bytes_min`/`bytes_max` capture the spread.
     pub bytes: u64,
+    pub bytes_min: u64,
+    pub bytes_max: u64,
     /// Raw `Content-Encoding` header value from the final response — kept as a
     /// `String` so unexpected values (e.g. `zstd`, server-side typos) survive
     /// the round-trip intact.
@@ -85,16 +91,22 @@ mod tests {
                 path: "/index.html".to_owned(),
                 identity: EncodingMeasurement {
                     bytes: 1024,
+                    bytes_min: 1024,
+                    bytes_max: 1024,
                     content_encoding: "identity".to_owned(),
                     median_ms: 12,
                 },
                 gzip: EncodingMeasurement {
                     bytes: 512,
+                    bytes_min: 510,
+                    bytes_max: 514,
                     content_encoding: "gzip".to_owned(),
                     median_ms: 14,
                 },
                 br: EncodingMeasurement {
                     bytes: 400,
+                    bytes_min: 398,
+                    bytes_max: 402,
                     content_encoding: "br".to_owned(),
                     median_ms: 15,
                 },
@@ -113,9 +125,9 @@ mod tests {
             "generatedAt": "2026-05-24T00:00:00.000Z",
             "measurements": [{
                 "path": "/index.html",
-                "identity": { "bytes": 1024, "contentEncoding": "identity", "medianMs": 12 },
-                "gzip":     { "bytes": 512,  "contentEncoding": "gzip",     "medianMs": 14 },
-                "br":       { "bytes": 400,  "contentEncoding": "br",       "medianMs": 15 },
+                "identity": { "bytes": 1024, "bytesMin": 1024, "bytesMax": 1024, "contentEncoding": "identity", "medianMs": 12 },
+                "gzip":     { "bytes": 512,  "bytesMin": 510,  "bytesMax": 514,  "contentEncoding": "gzip",     "medianMs": 14 },
+                "br":       { "bytes": 400,  "bytesMin": 398,  "bytesMax": 402,  "contentEncoding": "br",       "medianMs": 15 },
             }],
             "totals": { "identity": 1024, "gzip": 512, "br": 400 },
         });

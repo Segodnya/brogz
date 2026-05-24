@@ -8,6 +8,7 @@ pub mod discover;
 pub mod error;
 pub mod measure;
 pub mod orchestration;
+pub mod progress;
 pub mod report;
 
 pub use aggregate::{measure_encoding, median};
@@ -16,4 +17,5 @@ pub use discover::{discover_urls, parse_assets};
 pub use error::BrogzError;
 pub use measure::{ProbeResult, build_client, probe};
 pub use orchestration::{measure_url, run};
+pub use progress::{ProgressCallback, ProgressEvent};
 pub use report::{Encoding, EncodingMeasurement, Report, Totals, UrlMeasurement};
