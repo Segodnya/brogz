@@ -1,0 +1,17 @@
+# Cargo build artifacts
+/target/
+
+# Generated reports / scratch
+*.json.tmp
+/compression-report*.json
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local env
+.env
+.env.local

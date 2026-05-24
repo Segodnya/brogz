@@ -1,0 +1,54 @@
+[package]
+name = "brogz"
+version = "0.1.0"
+edition = "2024"
+authors = ["Kira Kurentsov <immortalsteel@gmail.com>"]
+description = "Measure wire bytes and timing for identity / gzip / brotli responses across a site's assets."
+repository = "https://github.com/Segodnya/brogz"
+homepage = "https://github.com/Segodnya/brogz"
+documentation = "https://docs.rs/brogz"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["compression", "brotli", "gzip", "http", "benchmark"]
+categories = ["command-line-utilities", "web-programming::http-client"]
+
+[lib]
+name = "brogz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "brogz"
+path = "src/bin/brogz.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:comfy-table", "dep:crossterm", "dep:tracing-subscriber"]
+
+[dependencies]
+# Core HTTP — rustls so the binary is fully static and does not need system OpenSSL.
+# Disable hyper's automatic decompression: we measure wire bytes, not decoded bytes.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+futures = "0.3"
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+thiserror = "2"
+tracing = "0.1"
+
+# CLI-only — gated behind the `cli` feature so library consumers do not pull in terminal deps.
+clap = { version = "4", features = ["derive"], optional = true }
+comfy-table = { version = "7", optional = true }
+crossterm = { version = "0.28", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
