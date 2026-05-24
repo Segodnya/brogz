@@ -118,3 +118,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  notify-tap:
+    name: Bump Homebrew tap
+    needs: publish-release
+    runs-on: ubuntu-latest
+    # Requires a PAT in `HOMEBREW_TAP_TOKEN` with `contents: write` on
+    # Segodnya/homebrew-brogz. Skipped silently if the secret is absent so the
+    # release workflow stays green on a first run before the tap exists.
+    if: vars.PUBLISH_TAP == 'true'
+    steps:
+      - name: Trigger formula bump
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh api repos/Segodnya/homebrew-brogz/dispatches \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -f event_type=brogz-released \
+            -F "client_payload[version]=${TAG}"
