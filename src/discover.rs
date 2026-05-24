@@ -42,7 +42,9 @@ pub fn parse_assets(html: &str, base: &Url) -> Vec<String> {
         // `Url::join` follows WHATWG resolution semantics, so all four
         // common forms — root-relative, protocol-relative, fully-qualified,
         // path-relative — funnel through one cross-origin check below.
-        let Ok(resolved) = base.join(href) else { continue };
+        let Ok(resolved) = base.join(href) else {
+            continue;
+        };
 
         if resolved.origin() != base_origin {
             continue;
