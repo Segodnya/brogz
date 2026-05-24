@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use futures::{StreamExt, stream};
 use reqwest::Client;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::aggregate::measure_encoding;
@@ -33,11 +36,18 @@ pub async fn run(config: Config) -> Result<Report, BrogzError> {
     let base_url = config.base_url.clone();
     let client_for_stream = client.clone();
 
+    // One semaphore for the whole run — caps in-flight HTTP connections across
+    // every URL × encoding × probe. Without this cap, default settings (11
+    // assets × 3 encodings × 10 runs ≈ 990 sockets) blow past macOS's file
+    // descriptor limit and the process aborts.
+    let permits = Arc::new(Semaphore::new(concurrency));
+
     let measurements: Vec<UrlMeasurement> = stream::iter(paths)
         .map(|path| {
             let base = base_url.clone();
             let client = client_for_stream.clone();
-            async move { measure_url(&base, &path, runs, concurrency, &client).await }
+            let permits = permits.clone();
+            async move { measure_url(&base, &path, runs, &client, permits).await }
         })
         .buffered(concurrency)
         .collect::<Vec<_>>()
@@ -84,15 +94,15 @@ pub async fn measure_url(
     base: &Url,
     path: &str,
     runs: usize,
-    concurrency: usize,
     client: &Client,
+    permits: Arc<Semaphore>,
 ) -> Result<UrlMeasurement, BrogzError> {
     let url = join_under_base(base, path)?;
 
     let (identity, gzip, br) = tokio::try_join!(
-        measure_encoding(client, &url, Encoding::Identity, runs, concurrency),
-        measure_encoding(client, &url, Encoding::Gzip, runs, concurrency),
-        measure_encoding(client, &url, Encoding::Br, runs, concurrency),
+        measure_encoding(client, &url, Encoding::Identity, runs, permits.clone()),
+        measure_encoding(client, &url, Encoding::Gzip, runs, permits.clone()),
+        measure_encoding(client, &url, Encoding::Br, runs, permits.clone()),
     )?;
 
     Ok(UrlMeasurement {

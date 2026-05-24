@@ -1,7 +1,9 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 use reqwest::Client;
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::error::BrogzError;
@@ -45,11 +47,24 @@ pub async fn measure_encoding(
     url: &Url,
     encoding: Encoding,
     runs: usize,
-    concurrency: usize,
+    permits: Arc<Semaphore>,
 ) -> Result<EncodingMeasurement, BrogzError> {
+    // `permits` caps the number of in-flight HTTP connections across the
+    // *entire* run, not just this encoding — otherwise N URLs × 3 encodings ×
+    // M runs (default 11 × 3 × 10 ≈ 990) blow past macOS's default file
+    // descriptor limit and the process aborts with EMFILE.
     let results = stream::iter(0..runs)
-        .map(|_| probe(client, url, encoding))
-        .buffer_unordered(concurrency.max(1))
+        .map(|_| {
+            let permits = permits.clone();
+            async move {
+                let _permit = permits
+                    .acquire_owned()
+                    .await
+                    .expect("global semaphore is never closed");
+                probe(client, url, encoding).await
+            }
+        })
+        .buffer_unordered(runs.max(1))
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -162,8 +177,9 @@ mod tests {
 
         let client = build_client(false).unwrap();
         let url = Url::parse(&format!("{}/asset.js", server.uri())).unwrap();
+        let permits = Arc::new(Semaphore::new(5));
 
-        let measurement = measure_encoding(&client, &url, Encoding::Gzip, 5, 5)
+        let measurement = measure_encoding(&client, &url, Encoding::Gzip, 5, permits)
             .await
             .unwrap();
 
@@ -184,8 +200,9 @@ mod tests {
 
         let client = build_client(false).unwrap();
         let url = Url::parse(&format!("{}/missing.js", server.uri())).unwrap();
+        let permits = Arc::new(Semaphore::new(3));
 
-        let err = measure_encoding(&client, &url, Encoding::Identity, 3, 3)
+        let err = measure_encoding(&client, &url, Encoding::Identity, 3, permits)
             .await
             .unwrap_err();
 
