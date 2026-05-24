@@ -65,6 +65,21 @@ pub async fn run(config: Config) -> Result<Report, BrogzError> {
 /// The three encodings run concurrently via `try_join!` (paritetic with the
 /// original TS `Promise.all`); inside each, `measure_encoding` does its own
 /// `runs`-wide parallelism per the configured concurrency.
+/// Join `path` under `base` using string concatenation semantics — mirrors the
+/// original TS `${baseUrl}${path}`. `Url::join` cannot do this: a leading
+/// slash in `path` would reset the base's own path segment (so
+/// `https://host/29844482` + `/index.html` would become `https://host/index.html`
+/// instead of `https://host/29844482/index.html`).
+pub(crate) fn join_under_base(base: &Url, path: &str) -> Result<Url, BrogzError> {
+    let base_str = base.as_str().trim_end_matches('/');
+    let normalized = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
+    Ok(Url::parse(&format!("{base_str}{normalized}"))?)
+}
+
 pub async fn measure_url(
     base: &Url,
     path: &str,
@@ -72,7 +87,7 @@ pub async fn measure_url(
     concurrency: usize,
     client: &Client,
 ) -> Result<UrlMeasurement, BrogzError> {
-    let url = base.join(path)?;
+    let url = join_under_base(base, path)?;
 
     let (identity, gzip, br) = tokio::try_join!(
         measure_encoding(client, &url, Encoding::Identity, runs, concurrency),
@@ -144,6 +159,37 @@ mod tests {
         assert_eq!(report.runs, 2);
         assert!(!report.generated_at.is_empty());
         assert!(!report.base_url.ends_with('/'));
+    }
+
+    #[test]
+    fn join_under_base_preserves_base_path() {
+        let base = Url::parse("https://host.example/29844482").unwrap();
+        assert_eq!(
+            join_under_base(&base, "/index.html").unwrap().as_str(),
+            "https://host.example/29844482/index.html"
+        );
+        assert_eq!(
+            join_under_base(&base, "assets/app.js").unwrap().as_str(),
+            "https://host.example/29844482/assets/app.js"
+        );
+    }
+
+    #[test]
+    fn join_under_base_handles_trailing_slash_on_base() {
+        let base = Url::parse("https://host.example/29844482/").unwrap();
+        assert_eq!(
+            join_under_base(&base, "/index.html").unwrap().as_str(),
+            "https://host.example/29844482/index.html"
+        );
+    }
+
+    #[test]
+    fn join_under_base_root_host() {
+        let base = Url::parse("https://host.example").unwrap();
+        assert_eq!(
+            join_under_base(&base, "/index.html").unwrap().as_str(),
+            "https://host.example/index.html"
+        );
     }
 
     #[test]

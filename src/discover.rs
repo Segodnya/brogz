@@ -6,6 +6,7 @@ use reqwest::Client;
 use url::Url;
 
 use crate::error::BrogzError;
+use crate::orchestration::join_under_base;
 
 // Mirror of the TS `(?:src|href)=["']([^"']+\.(?:js|mjs|css))["']/gi` — the
 // `(?i)` inline flag covers the `i` modifier from the original script. We
@@ -59,7 +60,7 @@ pub fn parse_assets(html: &str) -> Vec<String> {
 /// not strictly required for discovery (we ask for `identity`) but staying on
 /// the same client keeps connection pooling effective.
 pub async fn discover_urls(base: &Url, client: &Client) -> Result<Vec<String>, BrogzError> {
-    let index_url = base.join("/index.html")?;
+    let index_url = join_under_base(base, "/index.html")?;
 
     let response = client
         .get(index_url.clone())
